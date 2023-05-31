@@ -1,11 +1,12 @@
 import os
 import sys
 from typing import List
+import yaml
 
 import fire
 import torch
 import transformers
-from datasets import load_dataset
+from datasets import concatenate_datasets
 
 """
 Unused imports:
@@ -23,20 +24,30 @@ from peft import (
 from transformers import LlamaForCausalLM, LlamaTokenizer
 
 from utils.prompter import Prompter
+from utils.preprocess import *
+
+
+
+prompt_pre = (
+"The following is a conversation between an AI assistant called Doer and a human user called User. "
+"The assistant is intelligent, knowledgeable and polite to answer questions of user. "
+"The Doer is created by 海天瑞声科技股份有限公司。\n\n"
+)
+prompt_history = "User: {input}\n\nDoer: {output}\n\n"
+prompt_post = "User: {input}\n\nDoer: "
 
 
 def train(
     # model/data params
     base_model: str = "",  # the only required argument
-    data_path: str = "yahma/alpaca-cleaned",
     output_dir: str = "./lora-alpaca",
     # training hyperparams
-    batch_size: int = 128,
+    batch_size: int = 512,
     micro_batch_size: int = 4,
     num_epochs: int = 3,
     learning_rate: float = 3e-4,
-    cutoff_len: int = 256,
-    val_set_size: int = 2000,
+    cutoff_len: int = 1024,
+    val_set_size: int = 4000,
     # lora hyperparams
     lora_r: int = 8,
     lora_alpha: int = 16,
@@ -44,10 +55,12 @@ def train(
     lora_target_modules: List[str] = [
         "q_proj",
         "v_proj",
+        "k_proj",
+        "o_proj"
     ],
     # llm hyperparams
-    train_on_inputs: bool = True,  # if False, masks out inputs in loss
-    add_eos_token: bool = False,
+    train_on_inputs: bool = False,  # if False, masks out inputs in loss
+    add_eos_token: bool = True,
     group_by_length: bool = False,  # faster, but produces an odd training loss curve
     # wandb params
     wandb_project: str = "",
@@ -55,13 +68,11 @@ def train(
     wandb_watch: str = "",  # options: false | gradients | all
     wandb_log_model: str = "",  # options: false | true
     resume_from_checkpoint: str = None,  # either training checkpoint or final adapter
-    prompt_template_name: str = "alpaca",  # The prompt template to use, will default to alpaca.
 ):
     if int(os.environ.get("LOCAL_RANK", 0)) == 0:
         print(
             f"Training Alpaca-LoRA model with params:\n"
             f"base_model: {base_model}\n"
-            f"data_path: {data_path}\n"
             f"output_dir: {output_dir}\n"
             f"batch_size: {batch_size}\n"
             f"micro_batch_size: {micro_batch_size}\n"
@@ -81,14 +92,12 @@ def train(
             f"wandb_watch: {wandb_watch}\n"
             f"wandb_log_model: {wandb_log_model}\n"
             f"resume_from_checkpoint: {resume_from_checkpoint or False}\n"
-            f"prompt template: {prompt_template_name}\n"
         )
     assert (
         base_model
     ), "Please specify a --base_model, e.g. --base_model='huggyllama/llama-7b'"
     gradient_accumulation_steps = batch_size // micro_batch_size
 
-    prompter = Prompter(prompt_template_name)
 
     device_map = "auto"
     world_size = int(os.environ.get("WORLD_SIZE", 1))
@@ -108,13 +117,6 @@ def train(
         os.environ["WANDB_WATCH"] = wandb_watch
     if len(wandb_log_model) > 0:
         os.environ["WANDB_LOG_MODEL"] = wandb_log_model
-
-    model = LlamaForCausalLM.from_pretrained(
-        base_model,
-        load_in_8bit=True,
-        torch_dtype=torch.float16,
-        device_map=device_map,
-    )
 
     tokenizer = LlamaTokenizer.from_pretrained(base_model)
 
@@ -144,18 +146,28 @@ def train(
         result["labels"] = result["input_ids"].copy()
 
         return result
+    
+    def get_prompt(data_point, train_on_inputs=True):
+        user_prompt = prompt_pre # 固定开场白
+        # 这里面的字段是conversions，而不是input，因为上面的例子的字段是conversations
+        conversations = data_point['conversations']
+        # 获取多轮对话的轮数
+        for i in range(len(conversations) - 1): # 最后一轮对话单独处理，此处不处理
+            human = conversations[i]['user']
+            assistant = conversations[i]['doer']
+            user_prompt += prompt_history.format_map({'input': human, 'output': assistant})
+        # 添加最后一轮对话的输入部分
+        user_prompt += prompt_post.format_map({'input': conversations[-1]['user']})
+        # 根据是训练还是推理，用不同的方式来处理最后一轮对话的回答部分
+        if train_on_inputs:
+            user_prompt += conversations[-1]['doer']
+        return user_prompt
 
     def generate_and_tokenize_prompt(data_point):
-        full_prompt = prompter.generate_prompt(
-            data_point["instruction"],
-            data_point["input"],
-            data_point["output"],
-        )
+        full_prompt = get_prompt(data_point=data_point)
         tokenized_full_prompt = tokenize(full_prompt)
         if not train_on_inputs:
-            user_prompt = prompter.generate_prompt(
-                data_point["instruction"], data_point["input"]
-            )
+            user_prompt = get_prompt(data_point=data_point, train_on_inputs=False)
             tokenized_user_prompt = tokenize(
                 user_prompt, add_eos_token=add_eos_token
             )
@@ -170,6 +182,37 @@ def train(
                 user_prompt_len:
             ]  # could be sped up, probably
         return tokenized_full_prompt
+    
+    datasets = []
+    
+    for data_cls in all_dataset_class:
+        obj = data_cls()
+        sub_dataset = obj.preprocess()
+        datasets.append(sub_dataset)
+
+    data = concatenate_datasets(datasets)
+    print(data)  
+
+    if val_set_size > 0:
+        train_val = data.train_test_split(
+            test_size=val_set_size, shuffle=True, seed=42
+        )
+        train_data = (
+            train_val["train"].shuffle().map(generate_and_tokenize_prompt)
+        )
+        val_data = (
+            train_val["test"].shuffle().map(generate_and_tokenize_prompt)
+        )
+    else:
+        train_data = data["train"].shuffle().map(generate_and_tokenize_prompt)
+        val_data = None
+    
+    model = LlamaForCausalLM.from_pretrained(
+        base_model,
+        load_in_8bit=True,
+        torch_dtype=torch.float16,
+        device_map=device_map,
+    )
 
     model = prepare_model_for_int8_training(model)
 
@@ -182,11 +225,6 @@ def train(
         task_type="CAUSAL_LM",
     )
     model = get_peft_model(model, config)
-
-    if data_path.endswith(".json") or data_path.endswith(".jsonl"):
-        data = load_dataset("json", data_files=data_path)
-    else:
-        data = load_dataset(data_path)
 
     if resume_from_checkpoint:
         # Check the available weights and load them
@@ -210,19 +248,6 @@ def train(
 
     model.print_trainable_parameters()  # Be more transparent about the % of trainable params.
 
-    if val_set_size > 0:
-        train_val = data["train"].train_test_split(
-            test_size=val_set_size, shuffle=True, seed=42
-        )
-        train_data = (
-            train_val["train"].shuffle().map(generate_and_tokenize_prompt)
-        )
-        val_data = (
-            train_val["test"].shuffle().map(generate_and_tokenize_prompt)
-        )
-    else:
-        train_data = data["train"].shuffle().map(generate_and_tokenize_prompt)
-        val_data = None
 
     if not ddp and torch.cuda.device_count() > 1:
         # keeps Trainer from trying its own DataParallelism when more than 1 gpu is available
@@ -244,10 +269,10 @@ def train(
             optim="adamw_torch",
             evaluation_strategy="steps" if val_set_size > 0 else "no",
             save_strategy="steps",
-            eval_steps=200 if val_set_size > 0 else None,
-            save_steps=200,
+            eval_steps=20 if val_set_size > 0 else None,
+            save_steps=20,
             output_dir=output_dir,
-            save_total_limit=3,
+            save_total_limit=5,
             load_best_model_at_end=True if val_set_size > 0 else False,
             ddp_find_unused_parameters=False if ddp else None,
             group_by_length=group_by_length,

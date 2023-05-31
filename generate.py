@@ -23,18 +23,44 @@ except:  # noqa: E722
     pass
 
 
+prompt_pre = (
+"The following is a conversation between an AI assistant called Doer and a human user called User. "
+"The assistant is intelligent, knowledgeable and polite to answer questions of user. "
+"Doer由海天瑞声科技股份有限公司（DataOcean.AI）出品。Doer名字来源于公司的首字母简称（DataOcean）。\n\n"
+)
+prompt_history = "User: {input}\n\nDoer: {output}\n\n"
+prompt_post = "User: {input}\n\nDoer: "
+
+
 def main(
-    load_8bit: bool = False,
-    base_model: str = "",
-    lora_weights: str = "tloen/alpaca-lora-7b",
+    load_8bit: bool = True,
+    base_model: str = "yahma/llama-13b-hf",
+    lora_weights: str = "models/llama-13b-lora-alpaca-round-0/checkpoint-6660",
     prompt_template: str = "",  # The prompt template to use, will default to alpaca.
     server_name: str = "0.0.0.0",  # Allows to listen on all interfaces by providing '0.
-    share_gradio: bool = False,
+    share_gradio: bool = True,
 ):
     base_model = base_model or os.environ.get("BASE_MODEL", "")
     assert (
         base_model
     ), "Please specify a --base_model, e.g. --base_model='huggyllama/llama-7b'"
+
+
+    def get_prompt(data_point, train_on_inputs=True):
+        user_prompt = prompt_pre # 固定开场白
+        # 这里面的字段是conversions，而不是input，因为上面的例子的字段是conversations
+        conversations = data_point['conversations']
+        # 获取多轮对话的轮数
+        for i in range(len(conversations) - 1): # 最后一轮对话单独处理，此处不处理
+            human = conversations[i]['user']
+            assistant = conversations[i]['doer']
+            user_prompt += prompt_history.format_map({'input': human, 'output': assistant})
+        # 添加最后一轮对话的输入部分
+        user_prompt += prompt_post.format_map({'input': conversations[-1]['user']})
+        # 根据是训练还是推理，用不同的方式来处理最后一轮对话的回答部分
+        if train_on_inputs:
+            user_prompt += conversations[-1]['doer']
+        return user_prompt
 
     prompter = Prompter(prompt_template)
     tokenizer = LlamaTokenizer.from_pretrained(base_model)
@@ -87,7 +113,7 @@ def main(
     def evaluate(
         instruction,
         input=None,
-        temperature=0.1,
+        temperature=0.2,
         top_p=0.75,
         top_k=40,
         num_beams=4,
@@ -95,7 +121,16 @@ def main(
         stream_output=False,
         **kwargs,
     ):
-        prompt = prompter.generate_prompt(instruction, input)
+        # prompt = prompter.generate_prompt(instruction, input)
+        data_point = {
+            "conversations":[
+                {
+                    "user": instruction,
+                }
+            ]
+        }
+        prompt = get_prompt(data_point, train_on_inputs=False)
+        print(prompt)
         inputs = tokenizer(prompt, return_tensors="pt")
         input_ids = inputs["input_ids"].to(device)
         generation_config = GenerationConfig(
@@ -103,9 +138,11 @@ def main(
             top_p=top_p,
             top_k=top_k,
             num_beams=num_beams,
+            repetition_penalty=5.,
+            bad_words_ids=tokenizer(['\n\nUser: '], add_special_tokens=False).input_ids, #,'\n\nDoer:'
             **kwargs,
         )
-
+        print(tokenizer(['\n\nUser:','\n\nDoer:'], add_special_tokens=False).input_ids,)
         generate_params = {
             "input_ids": input_ids,
             "generation_config": generation_config,
@@ -138,11 +175,11 @@ def main(
                 for output in generator:
                     # new_tokens = len(output) - len(input_ids[0])
                     decoded_output = tokenizer.decode(output)
-
+                    print(decoded_output)
+                    print(output[-1])
                     if output[-1] in [tokenizer.eos_token_id]:
                         break
-
-                    yield prompter.get_response(decoded_output)
+                    yield decoded_output.split("Doer:")[-1].strip()
             return  # early return for stream_output
 
         # Without streaming
@@ -158,7 +195,7 @@ def main(
         output = tokenizer.decode(s)
         yield prompter.get_response(output)
 
-    gr.Interface(
+    interface = gr.Interface(
         fn=evaluate,
         inputs=[
             gr.components.Textbox(
@@ -190,29 +227,9 @@ def main(
                 label="Output",
             )
         ],
-        title="🦙🌲 Alpaca-LoRA",
-        description="Alpaca-LoRA is a 7B-parameter LLaMA model finetuned to follow instructions. It is trained on the [Stanford Alpaca](https://github.com/tatsu-lab/stanford_alpaca) dataset and makes use of the Huggingface LLaMA implementation. For more information, please visit [the project's website](https://github.com/tloen/alpaca-lora).",  # noqa: E501
-    ).queue().launch(server_name="0.0.0.0", share=share_gradio)
-    # Old testing code follows.
-
-    """
-    # testing code for readme
-    for instruction in [
-        "Tell me about alpacas.",
-        "Tell me about the president of Mexico in 2019.",
-        "Tell me about the king of France in 2019.",
-        "List all Canadian provinces in alphabetical order.",
-        "Write a Python program that prints the first 10 Fibonacci numbers.",
-        "Write a program that prints the numbers from 1 to 100. But for multiples of three print 'Fizz' instead of the number and for the multiples of five print 'Buzz'. For numbers which are multiples of both three and five print 'FizzBuzz'.",  # noqa: E501
-        "Tell me five words that rhyme with 'shock'.",
-        "Translate the sentence 'I have no mouth but I must scream' into Spanish.",
-        "Count up from 1 to 500.",
-    ]:
-        print("Instruction:", instruction)
-        print("Response:", evaluate(instruction))
-        print()
-    """
-
+        title="🦙🌲 DataOcean-DOER",
+        description="DOER is a 13B-parameter LLaMA model finetuned to follow instructions.").queue()
+    interface.launch(share=True)
 
 if __name__ == "__main__":
     fire.Fire(main)

@@ -1,0 +1,115 @@
+# datacoean:
+#   path: dataocean.json
+#   normalize_dict:
+#     input: input
+#     output: output
+#     instruction: instruction
+
+alpaca:
+  path: alpaca_data_cleaned_archive.json # yahma/alpaca-cleaned
+  normalize_dict: 
+    input: input
+    output: output
+    instruction: instruction
+
+dolly:
+  path: databricks-dolly-15k.jsonl  # databricks/databricks-dolly-15k
+  normalize_dict: 
+    input: ""
+    output: response
+    instruction: instruction
+  
+
+# BelleGroup_3.5M:
+#   path: BelleGroup/train_3.5M_CN
+#   normalize_dict: 
+#     input: ""
+#     output: response
+#     instruction: instruction
+
+# firefly:
+#   path: firefly-train-1.1M.jsonl # YeungNLP/firefly-train-1.1M
+#   normalize_dict: 
+#     input: ""
+#     output: target
+#     instruction: input
+
+# BelleGroup_2M:
+#   path: train_2M_CN.json # BelleGroup/train_2M_CN
+#   normalize_dict: 
+#     input: ""
+#     output: output
+#     instruction: instruction
+
+# finance_alpaca:
+#   path: gbharti-finance-alpaca.json # gbharti/finance-alpaca
+#   normalize_dict: 
+#     input: ""
+#     output: input
+#     instruction: instruction
+
+# # # competition_math:
+# # #   path: competition_math
+# # #   normalize_dict:
+# # #     input: ""
+# # #     output: solution
+# # #     instruction: problem
+
+# # # GuanacoDataset:
+# # #   path: JosephusCheung/GuanacoDataset
+# # #   normalize_dict:
+# # #     input: input
+# # #     output: output
+# # #     instruction: instruction
+
+# # math23k:
+# #   path: math23k_train_clean.json
+# #   normalize_dict:
+# #     input: input
+# #     output: output
+# #     instruction: instruction
+
+
+# human_value_alignment-1: # COIG
+#   path: COIG/human_value_alignment_instructions_part1.json
+#   normalize_dict:
+#     input: input
+#     output: output
+#     instruction: instruction
+
+# human_value_alignment-2: # COIG
+#   path: COIG/human_value_alignment_instructions_part1.json
+#   normalize_dict:
+#     input: input
+#     output: output
+#     instruction: instruction
+
+# leetcode_instructions: # COIG
+#   path: COIG/leetcode_instructions.jsonl
+#   normalize_dict:
+#     input: input
+#     output: output
+#     instruction: instruction
+
+# coig_translated_zh: # COIG
+#   path: COIG/translated_instructions.zh.jsonl
+#   normalize_dict:
+#     input: input
+#     output: output
+#     instruction: instruction
+
+# coig_translated_en: # COIG
+#   path: COIG/translated_instructions.en.jsonl
+#   normalize_dict:
+#     input: input
+#     output: output
+#     instruction: instruction
+
+# exam_instruction: # COIG 
+#   path: COIG/exam_instructions.alpaca.jsonl
+#   normalize_dict:
+#     input: input
+#     output: output
+#     instruction: instruction
+
+  
