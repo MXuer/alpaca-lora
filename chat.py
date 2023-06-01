@@ -30,7 +30,7 @@ prompt_pre = (
 "The assistant is intelligent, knowledgeable and polite to answer questions of user. "
 "Doer由海天瑞声科技股份有限公司（DataOcean.AI）出品。Doer名字来源于公司的首字母简称（DataOcean）。\n\n"
 )
-prompt_history = "User: {input}\n\nDoer: {output}\n\n"
+prompt_history = "User: {input}\n\nDoer: {output}</s>\n\n"
 prompt_post = "User: {input}\n\nDoer: "
 
 
@@ -48,7 +48,7 @@ def get_prompt(history, input):
 
 # model load
 base_model = "yahma/llama-13b-hf"
-lora_model = "models/llama-13b-lora-alpaca-round-0/checkpoint-6840"
+lora_model = "models/DOLLM-model-10103-DO"
 
 model = LlamaForCausalLM.from_pretrained(
     base_model,
@@ -113,6 +113,7 @@ def predict(input, chatbot, max_length, top_p, temperature, repetition_penalty, 
     chatbot.append((parse_text(input), ""))
     # get prompt
     prompt = get_prompt(history, input)
+    print("-------PROMPT-------")
     print(prompt)
     inputs = tokenizer(prompt, 
                        return_tensors="pt", 
@@ -126,7 +127,7 @@ def predict(input, chatbot, max_length, top_p, temperature, repetition_penalty, 
         top_k=40,
         num_beams=4,
         repetition_penalty=float(repetition_penalty),
-        bad_words_ids=tokenizer(['\n\nUser: '], add_special_tokens=False).input_ids, #,'\n\nDoer:'
+        # bad_words_ids=tokenizer(['\n\nUser: '], add_special_tokens=False).input_ids, #,'\n\nDoer:'
     )
 
     generate_params = {
@@ -156,13 +157,15 @@ def predict(input, chatbot, max_length, top_p, temperature, repetition_penalty, 
         for output in generator:
             # new_tokens = len(output) - len(input_ids[0])
             decoded_output = tokenizer.decode(output)
+            print("-"*30)
+            print("----HISTORY-----")
+            print(history)
             print(decoded_output)
-            print(output[-1])
+            print(output[-1], tokenizer.eos_token_id)
             if output[-1] in [tokenizer.eos_token_id]:
                 break
-            history[-1] = chatbot[-1]
             latest_answer = decoded_output.split("Doer:")[-1].strip()
-            history.append((input, latest_answer))
+            history[-1] = (input, latest_answer)
             chatbot[-1] = (parse_text(input), parse_text(latest_answer))
             yield chatbot, history
 

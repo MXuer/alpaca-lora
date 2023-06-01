@@ -33,7 +33,7 @@ prompt_pre = (
 "The assistant is intelligent, knowledgeable and polite to answer questions of user. "
 "The Doer is created by 海天瑞声科技股份有限公司。\n\n"
 )
-prompt_history = "User: {input}\n\nDoer: {output}\n\n"
+prompt_history = "User: {input}\n\nDoer: {output}</s>\n\n"
 prompt_post = "User: {input}\n\nDoer: "
 
 
@@ -67,7 +67,7 @@ def train(
     wandb_run_name: str = "",
     wandb_watch: str = "",  # options: false | gradients | all
     wandb_log_model: str = "",  # options: false | true
-    resume_from_checkpoint: str = None,  # either training checkpoint or final adapter
+    resume_from_checkpoint: str = "models/DOLLM-model-10102/checkpoint-6940",  # either training checkpoint or final adapter
 ):
     if int(os.environ.get("LOCAL_RANK", 0)) == 0:
         print(
@@ -118,7 +118,7 @@ def train(
     if len(wandb_log_model) > 0:
         os.environ["WANDB_LOG_MODEL"] = wandb_log_model
 
-    tokenizer = LlamaTokenizer.from_pretrained(base_model)
+    tokenizer = LlamaTokenizer.from_pretrained(base_model, use_fast=True)
 
     tokenizer.pad_token_id = (
         0  # unk. we want this to be different from the eos token
@@ -198,15 +198,15 @@ def train(
             test_size=val_set_size, shuffle=True, seed=42
         )
         train_data = (
-            train_val["train"].shuffle().map(generate_and_tokenize_prompt)
+            train_val["train"].shuffle().map(generate_and_tokenize_prompt, num_proc=64)
         )
         val_data = (
-            train_val["test"].shuffle().map(generate_and_tokenize_prompt)
+            train_val["test"].shuffle().map(generate_and_tokenize_prompt, num_proc=64)
         )
     else:
-        train_data = data["train"].shuffle().map(generate_and_tokenize_prompt)
+        train_data = data["train"].shuffle().map(generate_and_tokenize_prompt, num_proc=64)
         val_data = None
-    
+        
     model = LlamaForCausalLM.from_pretrained(
         base_model,
         load_in_8bit=True,
@@ -240,8 +240,8 @@ def train(
             )
         # The two files above have a different name depending on how they were saved, but are actually the same.
         if os.path.exists(checkpoint_name):
-            print(f"Restarting from {checkpoint_name}")
-            adapters_weights = torch.load(checkpoint_name)
+            print(f"!!!!!!!!! => Restarting from {checkpoint_name}")
+            adapters_weights = torch.load(checkpoint_name, map_location="cpu") # 
             set_peft_model_state_dict(model, adapters_weights)
         else:
             print(f"Checkpoint {checkpoint_name} not found")
@@ -269,8 +269,8 @@ def train(
             optim="adamw_torch",
             evaluation_strategy="steps" if val_set_size > 0 else "no",
             save_strategy="steps",
-            eval_steps=20 if val_set_size > 0 else None,
-            save_steps=20,
+            eval_steps=50 if val_set_size > 0 else None,
+            save_steps=50,
             output_dir=output_dir,
             save_total_limit=5,
             load_best_model_at_end=True if val_set_size > 0 else False,

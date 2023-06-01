@@ -53,7 +53,7 @@ class AlpacaPreprocess(DatasetPreporcess):
         instruction = data_point['instruction']
         output = data_point['output']
         if input_:
-            instruction = f"Given: {input_}\n{instruction}" 
+            instruction = f"{instruction}\n{input_}" 
         data_point = {
             "conversations":[
                 {
@@ -74,7 +74,7 @@ class DollyPreprocess(DatasetPreporcess):
         instruction = data_point['instruction']
         output = data_point['response']
         if input_:
-            instruction = f"Given: {input_}\n{instruction}" 
+            instruction = f"{instruction}\n{input_}" 
         data_point = {
             "conversations":[
                 {
@@ -131,7 +131,7 @@ class BelleGroup2MPreprocess(DatasetPreporcess):
         instruction = data_point['instruction']
         output = data_point['output']
         if input_:
-            instruction = f"Given: {input_}\n{instruction}" 
+            instruction = f"{instruction}\n{input_}" 
         data_point = {
             "conversations":[
                 {
@@ -151,7 +151,7 @@ class FinanceAlpacaPreprocess(DatasetPreporcess):
         instruction = data_point['instruction']
         output = data_point['output']
         if input_:
-            instruction = f"Given: {input_}\n{instruction}" 
+            instruction = f"{instruction}\n{input_}" 
         data_point = {
             "conversations":[
                 {
@@ -199,11 +199,8 @@ class DataOceanPreprocess(DatasetPreporcess):
         super().__init__(path)
 
     def map2template(self, data_point):
-        input_ = data_point['input']
         instruction = data_point['instruction']
         output = data_point['output']
-        if input_:
-            instruction = f"Given: {input_}\n{instruction}" 
         data_point = {
             "conversations":[
                 {
@@ -214,13 +211,15 @@ class DataOceanPreprocess(DatasetPreporcess):
         }
         return data_point
 
-all_dataset_class = [AlpacaPreprocess, 
-                     DollyPreprocess, 
-                     FinanceAlpacaPreprocess, 
-                     BelleGroup2MPreprocess, 
-                     BelleGroup3_5MPreprocess, 
-                     DataOceanPreprocess, 
-                     ChineseVicunaPreprocess]
+all_dataset_class = [
+    AlpacaPreprocess, 
+    DollyPreprocess, 
+    FinanceAlpacaPreprocess, 
+    BelleGroup2MPreprocess, 
+    BelleGroup3_5MPreprocess, 
+    DataOceanPreprocess, 
+    ChineseVicunaPreprocess
+]
 
 if __name__=="__main__":
     dp = DataOceanPreprocess()
